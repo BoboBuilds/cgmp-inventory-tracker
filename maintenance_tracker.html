@@ -28,7 +28,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);fon
 .mono{font-family:'DM Mono',monospace}
 
 /* ── Layout ── */
-.app{display:flex;height:100vh;height:100dvh;overflow:hidden}
+.app{display:flex;height:calc(100vh - 34px);height:calc(100dvh - 34px);overflow:hidden}
 .sidebar{width:200px;flex-shrink:0;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow-y:auto}
 .main{flex:1;display:flex;flex-direction:column;overflow:hidden}
 .topbar{padding:13px 20px;background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;gap:12px}
@@ -187,6 +187,19 @@ select.sinput{cursor:pointer}
 </style>
 </head>
 <body>
+<div id="app-switcher" style="background:#111827;color:#fff;padding:7px 20px;display:flex;align-items:center;gap:16px;font-size:12px;font-family:'DM Sans',sans-serif;flex-shrink:0">
+  <span style="color:#6b7280;font-weight:500;letter-spacing:.3px">APPS</span>
+  <a href="index.html" id="sw-inv" style="color:#9ca3af;text-decoration:none;padding:3px 10px;border-radius:5px;font-weight:500;transition:all .12s">📦 Inventory</a>
+  <a href="maintenance_tracker.html" id="sw-maint" style="color:#9ca3af;text-decoration:none;padding:3px 10px;border-radius:5px;font-weight:500;transition:all .12s">🔧 Maintenance</a>
+</div>
+<script>
+(function(){
+  var path = window.location.pathname;
+  var isMaint = path.includes('maintenance');
+  var active = document.getElementById(isMaint ? 'sw-maint' : 'sw-inv');
+  if(active){active.style.background='#1f2937';active.style.color='#fff';}
+})();
+</script>
 <div class="app">
   <div class="sidebar">
     <div class="logo">
