@@ -185,6 +185,36 @@ select.sinput{cursor:pointer}
   .drawer.open{transform:translateX(0)}
 }
 </style>
+  <!-- Firebase SDK -->
+  <script type="module">
+    import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
+    import { getFirestore, collection, doc, onSnapshot, setDoc, writeBatch, getDocs } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+
+    // ── PASTE YOUR FIREBASE CONFIG HERE ──────────────────────────────────────
+    const firebaseConfig = {
+  apiKey: "AIzaSyAXV8TtNjxfqFsBcaBrDsVD_hr-BkgmpY0",
+  authDomain: "sonoran-inventory-tracker.firebaseapp.com",
+  projectId: "sonoran-inventory-tracker",
+  storageBucket: "sonoran-inventory-tracker.firebasestorage.app",
+  messagingSenderId: "164131883643",
+  appId: "1:164131883643:web:5fdbfdff46d018b089f0de",
+  measurementId: "G-Q6J0ZC9EQZ"
+};
+    // ─────────────────────────────────────────────────────────────────────────
+
+    const app = initializeApp(firebaseConfig);
+    const db  = getFirestore(app);
+
+    window.__db = db;
+    window.__col = collection;
+    window.__doc = doc;
+    window.__setDoc = setDoc;
+    window.__writeBatch = writeBatch;
+    window.__getDocs = getDocs;
+    window.__onSnapshot = onSnapshot;
+    window.__firebaseReady = true;
+    window.dispatchEvent(new Event('firebase-ready'));
+  </script>
 </head>
 <body>
 <div id="app-switcher" style="background:#111827;color:#fff;padding:7px 20px;display:flex;align-items:center;gap:16px;font-size:12px;font-family:'DM Sans',sans-serif;flex-shrink:0">
@@ -231,6 +261,10 @@ select.sinput{cursor:pointer}
         <svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="6"/><line x1="8" y1="5" x2="8" y2="11"/><line x1="5" y1="8" x2="11" y2="8"/></svg>
         Log maintenance
       </button>
+      <button class="nav-item" data-view="equipment">
+        <svg viewBox="0 0 16 16"><rect x="1" y="3" width="14" height="10" rx="1"/><line x1="5" y1="8" x2="11" y2="8"/><line x1="8" y1="5" x2="8" y2="11"/></svg>
+        Manage equipment
+      </button>
     </div>
   </div>
 
@@ -242,7 +276,11 @@ select.sinput{cursor:pointer}
         </button>
         <div class="topbar-title" id="topbar-title">Dashboard</div>
       </div>
-      <div style="display:flex;gap:8px">
+      <div style="display:flex;gap:8px;align-items:center">
+        <div id="sync-status" style="display:flex;align-items:center;gap:5px;font-size:11.5px;font-weight:500;padding:3px 9px;border-radius:99px;background:var(--surface2);color:var(--muted)">
+          <span id="sync-dot" style="width:6px;height:6px;border-radius:50%;background:var(--muted);flex-shrink:0"></span>
+          <span id="sync-lbl">Local</span>
+        </div>
         <button class="btn sm no-print" onclick="printView()">
           <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 6V2h8v4"/><rect x="2" y="6" width="12" height="7" rx="1"/><path d="M4 10h8M4 13h4"/></svg>
           Print
@@ -268,6 +306,7 @@ select.sinput{cursor:pointer}
       <div id="view-m-kapscapper" class="view"></div>
       <div id="view-m-kgk1"    class="view"></div>
       <div id="view-m-kgk2"    class="view"></div>
+      <div id="view-equipment"  class="view"></div>
     </div>
   </div>
 </div>
@@ -294,6 +333,9 @@ select.sinput{cursor:pointer}
     <button class="nav-item" data-view="addlog">
       <svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="6"/><line x1="8" y1="5" x2="8" y2="11"/><line x1="5" y1="8" x2="11" y2="8"/></svg>Log maintenance
     </button>
+    <button class="nav-item" data-view="equipment">
+      <svg viewBox="0 0 16 16"><rect x="1" y="3" width="14" height="10" rx="1"/><line x1="5" y1="8" x2="11" y2="8"/><line x1="8" y1="5" x2="8" y2="11"/></svg>Manage equipment
+    </button>
     <div class="nav-divider"></div>
     <button class="nav-item" data-view="m-cfm3500"><svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="5"/><polyline points="8 5 8 8 10 10"/></svg>CFM 3500</button>
     <button class="nav-item" data-view="m-cfm2000"><svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="5"/><polyline points="8 5 8 8 10 10"/></svg>CFM 2000</button>
@@ -314,7 +356,7 @@ select.sinput{cursor:pointer}
 
 <script>
 // ── MACHINES ──────────────────────────────────────────────
-const MACHINES = [
+const DEFAULT_MACHINES = [
   { id:'cfm3500',    name:'CFM 3500',       type:'Encapsulator' },
   { id:'cfm2000',    name:'CFM 2000',       type:'Encapsulator' },
   { id:'vblender',   name:'V Blender',      type:'Blender' },
@@ -323,6 +365,7 @@ const MACHINES = [
   { id:'kgk1',       name:'KGK Inkjet #1',  type:'Coding / Marking' },
   { id:'kgk2',       name:'KGK Inkjet #2',  type:'Coding / Marking' },
 ];
+let MACHINES = DEFAULT_MACHINES.map(function(m){ return Object.assign({},m); });
 
 const MAINTENANCE_TYPES = [
   'Routine / Preventive',
@@ -343,13 +386,81 @@ let filterMachine = 'All', filterType = 'All', filterS = '';
 
 // ── STORAGE ───────────────────────────────────────────────
 function save() {
-  try { localStorage.setItem('maint_records', JSON.stringify(records)); } catch(e) {}
+  // localStorage fallback
+  try {
+    localStorage.setItem('maint_records', JSON.stringify(records));
+    localStorage.setItem('maint_machines', JSON.stringify(MACHINES));
+  } catch(e) {}
+  // Write to Firestore
+  if (!window.__db) return;
+  const db = window.__db;
+  try {
+    // Write machines list as a single doc
+    window.__setDoc(window.__doc(db, 'maint_config', 'machines'), { list: MACHINES })
+      .catch(function(e){ console.error('Machines write error', e); });
+    // Write latest record if any
+    if (records.length > 0) {
+      window.__setDoc(window.__doc(window.__col(db,'maint_records'), records[0].id), records[0])
+        .catch(function(e){ console.error('Record write error', e); });
+    }
+  } catch(e) { console.error('Firestore error', e); }
+}
+
+async function saveAllToFirestore() {
+  if (!window.__db) { alert('Firebase not connected.'); return; }
+  const db = window.__db;
+  try {
+    // Save machines
+    await window.__setDoc(window.__doc(db, 'maint_config', 'machines'), { list: MACHINES });
+    // Save all records in batches
+    const batch = window.__writeBatch(db);
+    records.forEach(function(r) {
+      batch.set(window.__doc(window.__col(db,'maint_records'), r.id), r);
+    });
+    await batch.commit();
+    alert('✓ Uploaded ' + records.length + ' maintenance records to cloud. All devices will now sync.');
+  } catch(e) { alert('Upload error: ' + e.message); }
 }
 function load() {
+  // Load from localStorage immediately
   try {
     var d = localStorage.getItem('maint_records');
     records = d ? JSON.parse(d) : [];
+    var m = localStorage.getItem('maint_machines');
+    if (m) MACHINES = JSON.parse(m);
   } catch(e) { records = []; }
+
+  // Hook up Firestore realtime listeners
+  function initFirestore() {
+    if (!window.__db) return;
+    var db = window.__db;
+    // Sync maintenance records
+    window.__onSnapshot(window.__col(db, 'maint_records'), function(snap) {
+      if (!snap.empty) {
+        records = snap.docs.map(function(d){ return d.data(); })
+          .sort(function(a,b){ return b.date.localeCompare(a.date); });
+        try { localStorage.setItem('maint_records', JSON.stringify(records)); } catch(e) {}
+        renderView(curView);
+      }
+    });
+    // Sync machines list
+    window.__onSnapshot(window.__doc(db, 'maint_config', 'machines'), function(snap) {
+      if (snap.exists()) {
+        var data = snap.data();
+        if (data.list && data.list.length > 0) {
+          MACHINES = data.list;
+          try { localStorage.setItem('maint_machines', JSON.stringify(MACHINES)); } catch(e) {}
+          buildNav();
+        }
+      }
+    });
+  }
+
+  if (window.__firebaseReady) {
+    initFirestore();
+  } else {
+    window.addEventListener('firebase-ready', initFirestore);
+  }
 }
 
 // ── HELPERS ───────────────────────────────────────────────
@@ -788,13 +899,220 @@ function printView() {
   window.print();
 }
 
+// ── EQUIPMENT MANAGEMENT ──────────────────────────────────
+function slugify(name) {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
+}
+function uniqueId(name) {
+  var base = slugify(name) || 'eq';
+  var id = base;
+  var n = 2;
+  while (MACHINES.find(function(m){ return m.id === id; })) { id = base+'-'+n; n++; }
+  return id;
+}
+
+function renderEquipment() {
+  var machineTypes = ['Encapsulator','Blender','Capper','Compressor','Coding / Marking','Filler','Labeler','Conveyor','Utility','Other'];
+  var rows = MACHINES.map(function(m) {
+    var recs = recordsForMachine(m.id);
+    return '<tr>'
+      +'<td style="font-weight:500">'+esc(m.name)+'</td>'
+      +'<td><span class="bdg neutral">'+esc(m.type)+'</span></td>'
+      +'<td class="mono" style="color:var(--muted);font-size:11px">'+esc(m.id)+'</td>'
+      +'<td>'+recs.length+' record'+(recs.length!==1?'s':'')+'</td>'
+      +'<td style="white-space:nowrap">'
+        +'<button class="btn xs" onclick="openEditEquipment(this.dataset.id)" data-id="'+m.id+'">Edit</button> '
+        +'<button class="btn xs danger" onclick="removeEquipment(this.dataset.id)" data-id="'+m.id+'" '
+          +(recs.length>0?'title="Has '+recs.length+' record(s) — records will be preserved"':'')
+        +'>Remove</button>'
+      +'</td>'
+      +'</tr>';
+  }).join('');
+
+  return '<div style="max-width:680px">'
+    +'<div class="card card-pad" style="margin-bottom:14px">'
+    +'<div class="card-title">Add equipment</div>'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:end">'
+    +'<div class="fg"><label class="flbl">Equipment name <span class="req">*</span></label>'
+    +'<input class="fi" id="eq-name" placeholder="e.g. CFM 4000"></div>'
+    +'<div class="fg"><label class="flbl">Type</label>'
+    +'<select class="fi" id="eq-type">'
+    +machineTypes.map(function(t){return '<option>'+t+'</option>';}).join('')
+    +'</select></div>'
+    +'<button class="btn pri" id="eq-add-btn" style="height:38px;align-self:end">Add equipment</button>'
+    +'</div>'
+    +'<div id="eq-msg" style="font-size:12px;margin-top:8px;min-height:18px"></div>'
+    +'</div>'
+
+    +'<div class="card">'
+    +'<table><thead><tr><th>Name</th><th>Type</th><th>ID</th><th>Records</th><th>Actions</th></tr></thead>'
+    +'<tbody>'+rows+'</tbody></table>'
+    +'</div>'
+
+    +'<div style="font-size:12px;color:var(--muted);margin-top:10px;padding:10px 12px;background:var(--surface2);border-radius:var(--radius-sm)">'
+    +'<strong style="color:var(--text)">Note:</strong> Removing equipment hides it from new logs and the sidebar, '
+    +'but all existing maintenance records for that equipment are preserved in the audit trail and can still be exported.'
+    +'</div>'
+    +'</div>';
+}
+
+function bindEquipmentEvents() {
+  var btn = document.getElementById('eq-add-btn');
+  if (btn) btn.addEventListener('click', addEquipment);
+  var inp = document.getElementById('eq-name');
+  if (inp) inp.addEventListener('keydown', function(e){ if(e.key==='Enter') addEquipment(); });
+}
+
+function addEquipment() {
+  var name = (document.getElementById('eq-name').value||'').trim();
+  var type = document.getElementById('eq-type').value;
+  var msg  = document.getElementById('eq-msg');
+  if (!name) { msg.style.color='var(--red)'; msg.textContent='Equipment name is required.'; return; }
+  if (MACHINES.find(function(m){ return m.name.toLowerCase()===name.toLowerCase(); })) {
+    msg.style.color='var(--red)'; msg.textContent='An equipment with that name already exists.'; return;
+  }
+  var id = uniqueId(name);
+  MACHINES.push({ id:id, name:name, type:type });
+  save();
+  rebuildMachineNav();
+  msg.style.color='var(--green)';
+  msg.textContent='✓ '+name+' added successfully.';
+  document.getElementById('eq-name').value = '';
+  renderView('equipment');
+}
+
+function removeEquipment(id) {
+  var m = MACHINES.find(function(x){ return x.id===id; });
+  if (!m) return;
+  var recs = recordsForMachine(id);
+  var suffix1 = ' maintenance record(s) will be preserved in the audit trail but the machine will no longer appear in the sidebar or log form.';
+  var suffix2 = ' from the equipment list? It has no maintenance records.';
+  var msg = recs.length > 0
+    ? 'Remove ' + m.name + ' from the equipment list? ' + recs.length + suffix1
+    : 'Remove ' + m.name + suffix2;
+  if (!confirm(msg)) return;
+  MACHINES = MACHINES.filter(function(x){ return x.id!==id; });
+  save();
+  rebuildMachineNav();
+  renderView('equipment');
+}
+
+function openEditEquipment(id) {
+  var m = MACHINES.find(function(x){ return x.id===id; });
+  if (!m) return;
+  var machineTypes = ['Encapsulator','Blender','Capper','Compressor','Coding / Marking','Filler','Labeler','Conveyor','Utility','Other'];
+  document.getElementById('modal-inner').innerHTML =
+    '<div class="modal-header"><div class="modal-title">Edit equipment</div>'
+    +'<button class="btn xs" onclick="closeModal()">✕</button></div>'
+    +'<div class="modal-body"><div class="fgrid" style="gap:10px">'
+    +'<div class="fg full"><label class="flbl">Equipment name <span class="req">*</span></label>'
+    +'<input class="fi" id="ee-name" value="'+esc(m.name)+'"></div>'
+    +'<div class="fg full"><label class="flbl">Type</label>'
+    +'<select class="fi" id="ee-type">'
+    +machineTypes.map(function(t){return '<option'+(t===m.type?' selected':'')+'>'+t+'</option>';}).join('')
+    +'</select></div>'
+    +'</div></div>'
+    +'<div class="modal-footer">'
+    +'<button class="btn" onclick="closeModal()">Cancel</button>'
+    +'<button class="btn pri" onclick="saveEditEquipment(this.dataset.id)" data-id="'+id+'">Save changes</button>'
+    +'</div>';
+  document.getElementById('modal-bg').style.display = 'flex';
+}
+
+function saveEditEquipment(id) {
+  var m = MACHINES.find(function(x){ return x.id===id; });
+  if (!m) return;
+  var name = (document.getElementById('ee-name').value||'').trim();
+  var type = document.getElementById('ee-type').value;
+  if (!name) { alert('Name is required.'); return; }
+  var dup = MACHINES.find(function(x){ return x.id!==id && x.name.toLowerCase()===name.toLowerCase(); });
+  if (dup) { alert('Another equipment with that name already exists.'); return; }
+  m.name = name;
+  m.type = type;
+  save();
+  rebuildMachineNav();
+  closeModal();
+  renderView('equipment');
+}
+
+function rebuildMachineNav() {
+  // Rebuild sidebar machine nav items
+  var machineSection = document.querySelector('#nav .nav-section-lbl:nth-of-type(2)');
+  // Easier: rebuild entire sidebar and drawer nav
+  buildNav();
+}
+
+function buildNav() {
+  var navEl = document.getElementById('nav');
+  if (!navEl) return;
+  var machineItems = MACHINES.map(function(m) {
+    return '<button class="nav-item'+(curView==='m-'+m.id?' active':'')+'" data-view="m-'+m.id+'">'
+      +'<svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="5"/><polyline points="8 5 8 8 10 10"/></svg>'
+      +esc(m.name)+'</button>';
+  }).join('');
+
+  navEl.innerHTML =
+    '<div class="nav-section-lbl">Overview</div>'
+    +'<button class="nav-item'+(curView==='dashboard'?' active':'')+'" data-view="dashboard">'
+    +'<svg viewBox="0 0 16 16"><rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/><rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg>Dashboard</button>'
+    +'<button class="nav-item'+(curView==='alllog'?' active':'')+'" data-view="alllog">'
+    +'<svg viewBox="0 0 16 16"><path d="M10 1H4a1 1 0 00-1 1v12a1 1 0 001 1h8a1 1 0 001-1V5L10 1z"/><polyline points="10 1 10 5 14 5"/><line x1="5" y1="8" x2="11" y2="8"/><line x1="5" y1="11" x2="11" y2="11"/></svg>All records</button>'
+    +'<div class="nav-divider"></div>'
+    +'<div class="nav-section-lbl">Machines</div>'
+    +machineItems
+    +'<div class="nav-divider"></div>'
+    +'<div class="nav-section-lbl">Actions</div>'
+    +'<button class="nav-item'+(curView==='addlog'?' active':'')+'" data-view="addlog">'
+    +'<svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="6"/><line x1="8" y1="5" x2="8" y2="11"/><line x1="5" y1="8" x2="11" y2="8"/></svg>Log maintenance</button>'
+    +'<button class="nav-item'+(curView==='equipment'?' active':'')+'" data-view="equipment">'
+    +'<svg viewBox="0 0 16 16"><rect x="1" y="3" width="14" height="10" rx="1"/><line x1="5" y1="8" x2="11" y2="8"/><line x1="8" y1="5" x2="8" y2="11"/></svg>Manage equipment</button>';
+
+  // Also rebuild drawer nav
+  var drawerNav = document.getElementById('drawer-nav');
+  if (drawerNav) {
+    drawerNav.innerHTML =
+      '<button class="nav-item'+(curView==='dashboard'?' active':'')+'" data-view="dashboard">'
+      +'<svg viewBox="0 0 16 16"><rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/><rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg>Dashboard</button>'
+      +'<button class="nav-item'+(curView==='alllog'?' active':'')+'" data-view="alllog">'
+      +'<svg viewBox="0 0 16 16"><path d="M10 1H4a1 1 0 00-1 1v12a1 1 0 001 1h8a1 1 0 001-1V5L10 1z"/><polyline points="10 1 10 5 14 5"/></svg>All records</button>'
+      +'<button class="nav-item'+(curView==='addlog'?' active':'')+'" data-view="addlog">'
+      +'<svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="6"/><line x1="8" y1="5" x2="8" y2="11"/><line x1="5" y1="8" x2="11" y2="8"/></svg>Log maintenance</button>'
+      +'<button class="nav-item'+(curView==='equipment'?' active':'')+'" data-view="equipment">'
+      +'<svg viewBox="0 0 16 16"><rect x="1" y="3" width="14" height="10" rx="1"/><line x1="5" y1="8" x2="11" y2="8"/><line x1="8" y1="5" x2="8" y2="11"/></svg>Manage equipment</button>'
+      +'<div class="nav-divider"></div>'
+      +MACHINES.map(function(m){
+        return '<button class="nav-item'+(curView==='m-'+m.id?' active':'')+'" data-view="m-'+m.id+'">'
+          +'<svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="5"/><polyline points="8 5 8 8 10 10"/></svg>'
+          +esc(m.name)+'</button>';
+      }).join('');
+  }
+
+  // Rebind nav listeners
+  if (navEl) navEl.addEventListener('click', function(e){
+    var item = e.target.closest('.nav-item');
+    if (item && item.dataset.view) setView(item.dataset.view);
+  });
+  if (drawerNav) drawerNav.addEventListener('click', function(e){
+    var item = e.target.closest('.nav-item');
+    if (item && item.dataset.view) { setView(item.dataset.view); closeDrawer(); }
+  });
+}
+
+
 // ── NAVIGATION ────────────────────────────────────────────
-var VIEW_TITLES = {
+var VIEW_TITLES = { equipment:'Manage equipment',
   dashboard:'Dashboard', alllog:'All records', addlog:'Log maintenance',
   'm-cfm3500':'CFM 3500','m-cfm2000':'CFM 2000','m-vblender':'V Blender',
   'm-compressor':'Compressor','m-kapscapper':'Kaps-all Capper',
   'm-kgk1':'KGK Inkjet #1','m-kgk2':'KGK Inkjet #2'
 };
+// Extend VIEW_TITLES dynamically for any added machines
+function getMachineTitle(v) {
+  if (!v.startsWith('m-')) return VIEW_TITLES[v] || v;
+  var id = v.replace('m-','');
+  var m = MACHINES.find(function(x){ return x.id===id; });
+  return m ? m.name : v;
+}
 
 function setView(v, extra) {
   curView = v;
@@ -803,7 +1121,7 @@ function setView(v, extra) {
   var viewEl = document.getElementById('view-'+v);
   if (viewEl) viewEl.classList.add('active');
   document.querySelectorAll('[data-view="'+v+'"]').forEach(function(el){el.classList.add('active');});
-  document.getElementById('topbar-title').textContent = VIEW_TITLES[v] || v;
+  document.getElementById('topbar-title').textContent = getMachineTitle(v);
   renderView(v, extra);
 }
 
@@ -813,7 +1131,18 @@ function renderView(v, extra) {
   if (v==='dashboard') el.innerHTML = renderDashboard();
   else if (v==='alllog') { el.innerHTML = renderAllLog(); bindFilters(); }
   else if (v==='addlog') el.innerHTML = renderAddLog(extra||'');
-  else if (v.startsWith('m-')) el.innerHTML = renderMachinePage(v.replace('m-',''));
+  else if (v==='equipment') { el.innerHTML = renderEquipment(); bindEquipmentEvents(); }
+  else if (v.startsWith('m-')) {
+    // Ensure a view div exists for dynamically added machines
+    if (!el) {
+      var newDiv = document.createElement('div');
+      newDiv.id = 'view-'+v;
+      newDiv.className = 'view active';
+      document.querySelector('.content').appendChild(newDiv);
+      el = newDiv;
+    }
+    el.innerHTML = renderMachinePage(v.replace('m-',''));
+  }
 }
 
 function bindFilters() {
